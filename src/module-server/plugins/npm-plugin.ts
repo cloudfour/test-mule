@@ -1,11 +1,12 @@
 import { dirname, join } from 'path';
-import type { Plugin } from 'rollup';
+import type { Plugin } from '../plugin';
 import { promises as fs } from 'fs';
 import { fileURLToPath } from 'url';
 import { jsExts, isBareImport, npmPrefix } from '../extensions-and-detection';
 import { changeErrorMessage } from '../../utils';
 import { bundleNpmModule } from '../bundle-npm-module';
 import { resolveFromNodeModules } from '../node-resolve';
+import { createHash } from 'crypto';
 
 // This is the folder that Pleasantest is installed in (e.g. <something>/node_modules/pleasantest)
 const installFolder = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -33,7 +34,13 @@ const getFromCache = async (cachePath: string) => {
   );
 };
 
-export const npmPlugin = ({ root }: { root: string }): Plugin => {
+export const npmPlugin = ({
+  root,
+  envVars,
+}: {
+  root: string;
+  envVars: Record<string, string>;
+}): Plugin => {
   return {
     name: 'npm',
     // Rewrite bare imports to have @npm/ prefix
@@ -60,16 +67,26 @@ export const npmPlugin = ({ root }: { root: string }): Plugin => {
       id = id.slice(npmPrefix.length);
       const resolved = await resolveFromNodeModules(id, root);
       if (!resolved) return;
-      const cachePath = join(cacheDir, '@npm', `${resolved.idWithVersion}.js`);
+
+      const cachePath = join(
+        cacheDir,
+        '@npm',
+        `${resolved.idWithVersion}-${hash(envVars)}.js`,
+      );
       const cached = await getFromCache(cachePath);
       if (cached) return cached;
-      const result = await bundleNpmModule(resolved.path, id, false);
+      const result = await bundleNpmModule(resolved.path, id, false, envVars);
       // Queue up a second-pass optimized/minified build
-      bundleNpmModule(resolved.path, id, true).then((optimizedResult) => {
-        setInCache(cachePath, optimizedResult);
-      });
+      bundleNpmModule(resolved.path, id, true, envVars).then(
+        (optimizedResult) => {
+          setInCache(cachePath, optimizedResult);
+        },
+      );
       setInCache(cachePath, result);
       return result;
     },
   };
 };
+
+const hash = (inputs: Record<string, string>) =>
+  createHash('sha512').update(JSON.stringify(inputs)).digest('hex').slice(0, 7);

@@ -42,10 +42,10 @@ import { resolve, dirname } from 'path';
 import { Parser } from 'acorn';
 import type {
   LoadResult,
-  Plugin,
   PluginContext as RollupPluginContext,
   ResolveIdResult,
 } from 'rollup';
+import type { Plugin } from './plugin';
 import { combineSourceMaps } from './combine-source-maps';
 import { createCodeFrame } from 'simple-code-frame';
 import type {

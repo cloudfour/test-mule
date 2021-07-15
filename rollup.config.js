@@ -7,6 +7,19 @@ import babel from '@rollup/plugin-babel';
 import nodeResolve from '@rollup/plugin-node-resolve';
 const extensions = ['.js', '.jsx', '.es6', '.es', '.mjs', '.ts', '.tsx'];
 
+const external = [
+  'puppeteer',
+  'source-map',
+  'acorn',
+  'es-module-lexer',
+  'cjs-module-lexer',
+  'rollup',
+  '@rollup/plugin-commonjs',
+  'esbuild',
+  /postcss/,
+  /mime/,
+];
+
 /** @type {import('rollup').RollupOptions} */
 const mainConfig = {
   input: ['src/index.ts'],
@@ -34,25 +47,14 @@ const mainConfig = {
     nodeResolve({ extensions }),
     bundlePlugin(),
   ],
-  external: [
-    'puppeteer',
-    'source-map',
-    'acorn',
-    'es-module-lexer',
-    'cjs-module-lexer',
-    'rollup',
-    '@rollup/plugin-commonjs',
-    'esbuild',
-    /postcss/,
-    /mime/,
-  ],
+  external,
 };
 
 /** @type {import('rollup').RollupOptions} */
 const typesConfig = {
   input: 'src/index.ts',
   output: [{ file: 'dist/index.d.ts', format: 'es' }],
-  external: ['puppeteer', 'pretty-format'],
+  external: [...external, 'polka'],
   plugins: [dts({ respectExternal: true })],
 };
 

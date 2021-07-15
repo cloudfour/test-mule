@@ -1,11 +1,15 @@
 import postcssPlugin from 'rollup-plugin-postcss';
 import { transformCssImports } from '../transform-css-imports';
-import { join } from 'path';
+import { posix, relative, resolve, sep } from 'path';
 import { cssExts } from '../extensions-and-detection';
 
 export const cssPlugin = ({
   returnCSS = false,
-}: { returnCSS?: boolean } = {}) => {
+  root,
+}: {
+  returnCSS?: boolean;
+  root: string;
+}) => {
   const transformedCSS = new Map<string, string>();
   const plugin = postcssPlugin({
     inject: (cssVariable) => {
@@ -28,9 +32,13 @@ export const cssPlugin = ({
         test: cssExts,
         async process({ code, map }: { code: string; map?: string }) {
           code = await transformCssImports(code, this.id, {
-            resolveId(specifier, id) {
-              if (!specifier.startsWith('./')) return specifier;
-              return join(id, '..', specifier);
+            resolveId: (spec, id) => {
+              if (!spec.startsWith('./'))
+                return spec.split(sep).join(posix.sep);
+              const absolutePath = resolve(id, '..', spec);
+              return `./${relative(root, absolutePath)
+                .split(sep)
+                .join(posix.sep)}`;
             },
           });
           if (returnCSS) {

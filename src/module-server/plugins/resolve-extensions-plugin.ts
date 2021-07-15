@@ -1,4 +1,4 @@
-import type { Plugin } from 'rollup';
+import type { Plugin } from '../plugin';
 import { isRelativeOrAbsoluteImport } from '../extensions-and-detection';
 import { resolveRelativeOrAbsolute } from '../node-resolve';
 

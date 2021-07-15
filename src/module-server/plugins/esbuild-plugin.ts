@@ -1,13 +1,16 @@
 import * as esbuild from 'esbuild';
 import { extname } from 'path';
-import type { Plugin } from 'rollup';
+import type { Plugin } from '../plugin';
+import { jsExts } from '../extensions-and-detection';
 
 const shouldProcess = (id: string) => {
   if (id[0] === '\0') return false;
-  return /\.[jt]sx?$/.test(id);
+  return jsExts.test(id);
 };
 
-export const esbuildPlugin = (): Plugin => {
+export const esbuildPlugin = (
+  esbuildOptions: esbuild.TransformOptions,
+): Plugin => {
   return {
     name: 'esbuild',
     async transform(code, id) {
@@ -19,6 +22,7 @@ export const esbuildPlugin = (): Plugin => {
           sourcefile: id,
           loader,
           sourcemap: 'external',
+          ...esbuildOptions,
         })
         .catch((error) => {
           const err = error.errors[0];

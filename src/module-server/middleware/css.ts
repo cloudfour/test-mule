@@ -19,7 +19,7 @@ interface CSSMiddlewareOpts {
 export const cssMiddleware = ({
   root,
 }: CSSMiddlewareOpts): polka.Middleware => {
-  const cssPlug = cssPlugin({ returnCSS: true });
+  const cssPlug = cssPlugin({ root, returnCSS: true });
 
   return async (req, res, next) => {
     try {

@@ -1,37 +1,66 @@
 import type polka from 'polka';
-import type { Plugin, SourceDescription } from 'rollup';
+import type { SourceDescription } from 'rollup';
+import type { Plugin } from './plugin';
 import { indexHTMLMiddleware } from './middleware/index-html';
 import { jsMiddleware } from './middleware/js';
 import { npmPlugin } from './plugins/npm-plugin';
-import { processGlobalPlugin } from './plugins/process-global-plugin';
+import { environmentVariablesPlugin } from './plugins/environment-variables-plugin';
 import { resolveExtensionsPlugin } from './plugins/resolve-extensions-plugin';
 import { createServer } from './server';
-import type { RollupAliasOptions } from '@rollup/plugin-alias';
-import aliasPlugin from '@rollup/plugin-alias';
 import { esbuildPlugin } from './plugins/esbuild-plugin';
 import { cssPlugin } from './plugins/css';
 import { cssMiddleware } from './middleware/css';
 import { staticMiddleware } from './middleware/static';
+import type * as esbuild from 'esbuild';
 
-interface ModuleServerOpts {
+export interface ModuleServerOpts {
   root?: string;
-  aliases?: RollupAliasOptions['entries'];
+  /** List of Rollup/Vite/WMR plugins to add */
   plugins?: (Plugin | false | undefined)[];
+  /**
+   * Environment variables to pass into the bundle.
+   * They can be accessed via import.meta.env.<name> (or process.env.<name> for compatability)
+   */
+  envVars?: Record<string, string>;
+  /** Options to pass to esbuild. Set to false to disable esbuild */
+  esbuild?: esbuild.TransformOptions | false;
 }
 
 export const createModuleServer = async ({
   root = process.cwd(),
-  aliases,
   plugins: userPlugins = [],
+  envVars: _envVars = {},
+  esbuild: esbuildOptions = {},
 }: ModuleServerOpts = {}) => {
-  const plugins = [
-    ...userPlugins,
-    aliases && aliasPlugin({ entries: aliases }),
+  const prePlugins: Plugin[] = [];
+  const normalPlugins: Plugin[] = [];
+  const postPlugins: Plugin[] = [];
+
+  const envVars = {
+    NODE_ENV: 'development',
+    ..._envVars,
+  };
+
+  for (const plugin of userPlugins) {
+    if (!plugin) continue;
+    if (plugin.enforce === 'pre') prePlugins.push(plugin);
+    else if (plugin.enforce === 'post') postPlugins.push(plugin);
+    else normalPlugins.push(plugin);
+  }
+
+  const plugins: (Plugin | false | undefined)[] = [
+    ...prePlugins,
+
+    ...normalPlugins,
+
     resolveExtensionsPlugin(),
-    processGlobalPlugin({ NODE_ENV: 'development' }),
-    npmPlugin({ root }),
-    esbuildPlugin(),
-    cssPlugin(),
+    environmentVariablesPlugin(envVars),
+    npmPlugin({ root, envVars }),
+
+    esbuildOptions && esbuildPlugin(esbuildOptions),
+    cssPlugin({ root }),
+
+    ...postPlugins,
   ];
   const filteredPlugins = plugins.filter(Boolean) as Plugin[];
   const requestCache = new Map<string, SourceDescription>();

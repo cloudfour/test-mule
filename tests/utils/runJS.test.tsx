@@ -1,6 +1,8 @@
 import { withBrowser } from 'pleasantest';
 import type { PleasantestContext, PleasantestUtils } from 'pleasantest';
 import { printErrorFrames } from '../test-utils';
+import vuePlugin from 'rollup-plugin-vue';
+import aliasPlugin from '@rollup/plugin-alias';
 
 const createHeading = async ({
   utils,
@@ -260,4 +262,84 @@ describe('CJS interop edge cases', () => {
       await expect(heading).toHaveTextContent('Hi');
     }),
   );
+  test(
+    'vue component can be imported via rollup-plugin-vue',
+    withBrowser(
+      {
+        moduleServer: {
+          plugins: [
+            {
+              name: 'replace-for-vue',
+              transform(code) {
+                return code
+                  .replace(/__VUE_OPTIONS_API__/g, 'true')
+                  .replace(/__VUE_PROD_DEVTOOLS__/g, 'false');
+              },
+            },
+            vuePlugin(),
+          ],
+        },
+      },
+      async ({ utils, screen }) => {
+        await utils.injectHTML('<div id="app"></div>');
+        await utils.runJS(`
+          import { createApp } from 'vue'
+          import VueComponent from './vue-component.vue'
+          const app = createApp(VueComponent)
+          app.mount('#app')
+        `);
+        const heading = await screen.getByRole('heading');
+        await expect(heading).toHaveTextContent('Hiya');
+        await expect(heading).toHaveStyle({ color: 'green' });
+      },
+    ),
+  );
 });
+
+test(
+  'can use @rollup/plugin-alias',
+  withBrowser(
+    {
+      moduleServer: {
+        plugins: [
+          aliasPlugin({
+            entries: { asdf: 'preact', foo: './external' },
+          }),
+        ],
+      },
+    },
+    async ({ utils }) => {
+      await utils.runJS(`
+        import * as preact from 'asdf'
+        if (!preact.h || !preact.Fragment || !preact.Component)
+          throw new Error('Alias did not load preact correctly')
+        import * as external from 'foo'
+        if (!external.render || !external.renderThrow)
+          throw new Error('Alias did not load ./external.tsx correctly')
+      `);
+    },
+  ),
+);
+
+test(
+  'environment variables are injected into browser code',
+  withBrowser(
+    {
+      moduleServer: {
+        envVars: { asdf: '1234' },
+      },
+    },
+    async ({ utils }) => {
+      await utils.runJS(`
+        if (process.env.NODE_ENV !== 'development')
+          throw new Error('process.env.NODE_ENV not set correctly')
+        if (import.meta.env.NODE_ENV !== 'development')
+          throw new Error('import.meta.env.NODE_ENV not set correctly')
+        if (process.env.asdf !== '1234')
+          throw new Error('process.env.asdf not set correctly')
+        if (import.meta.env.asdf !== '1234')
+          throw new Error('import.meta.env.asdf not set correctly')
+      `);
+    },
+  ),
+);

@@ -27,9 +27,13 @@
   - Function style changed
   - Comments changed
   - ESLint fixes
+  - Parsing errors are thrown with code frame
   */
 
 import { parse } from 'es-module-lexer';
+import { createCodeFrame } from 'simple-code-frame';
+import * as colors from 'kolorist';
+import { cssExts, jsExts } from './extensions-and-detection';
 
 type MaybePromise<T> = Promise<T> | T;
 type ResolveFn = (
@@ -51,8 +55,32 @@ export const transformImports = async (
   id: string,
   { resolveImportMeta, resolveId, resolveDynamicImport }: Options = {},
 ) => {
-  // eslint-disable-next-line @cloudfour/typescript-eslint/await-thenable
-  const [imports] = await parse(code, id);
+  let imports;
+  try {
+    // eslint-disable-next-line @cloudfour/typescript-eslint/await-thenable
+    imports = (await parse(code, id))[0];
+  } catch (error) {
+    if (!('idx' in error)) throw error;
+    const linesUntilError = code.slice(0, error.idx).split('\n');
+    const line = linesUntilError.length;
+    const column = linesUntilError[linesUntilError.length - 1].length;
+    const frame = createCodeFrame(code, line - 1, column);
+    let message = `${colors.red(colors.bold(error.message))}
+
+${colors.red(`${id}:${line}:${column + 1}`)}
+
+${frame}
+`;
+    if (!jsExts.test(id) && !cssExts.test(id))
+      message += `${colors.yellow(
+        'You may need to add transform plugins to handle non-JS input',
+      )}\n`;
+
+    const modifiedError = new Error(message);
+    modifiedError.stack = message;
+    throw modifiedError;
+  }
+
   let out = '';
   let offset = 0;
 

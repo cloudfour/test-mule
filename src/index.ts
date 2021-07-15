@@ -1,5 +1,5 @@
 import * as puppeteer from 'puppeteer';
-import * as path from 'path';
+import { relative, join, isAbsolute, dirname, posix, sep, resolve } from 'path';
 import type { BoundQueries } from './pptr-testing-library';
 import { getQueriesForElement } from './pptr-testing-library';
 import { connectToBrowser } from './connect-to-browser';
@@ -16,6 +16,7 @@ import {
   printStackLine,
   removeFuncFromStackTrace,
 } from './utils';
+import type { ModuleServerOpts } from './module-server';
 import { createModuleServer } from './module-server';
 import { cleanupClientRuntimeServer } from './module-server/client-runtime-server';
 import { Console } from 'console';
@@ -63,6 +64,7 @@ export interface PleasantestContext {
 export interface WithBrowserOpts {
   headless?: boolean;
   device?: puppeteer.devices.Device;
+  moduleServer?: ModuleServerOpts;
 }
 
 interface TestFn {
@@ -106,7 +108,7 @@ export const withBrowser: WithBrowser = (...args: any[]) => {
     return true;
   });
 
-  const testPath = testFile ? path.relative(process.cwd(), testFile) : thisFile;
+  const testPath = testFile ? relative(process.cwd(), testFile) : thisFile;
 
   return async () => {
     const { state, cleanupServer, ...ctx } = await createTab({
@@ -198,7 +200,7 @@ const indent = (input: string, indentFirstLine = true) =>
       // If there is an escape code at the beginning of the line
       // put the tab after the escape code
       // the reason for this is to prevent the indentation from getting messed up from wrapping
-      // you can see this if you squish the devools window
+      // you can see this if you squish the devtools window
       const match = ansiRegex.exec(line);
       if (!match || match.index !== 0) return `  ${line}`;
       const insertPoint = match[0].length;
@@ -208,7 +210,11 @@ const indent = (input: string, indentFirstLine = true) =>
 
 const createTab = async ({
   testPath,
-  options: { headless = true, device },
+  options: {
+    headless = defaultOptions.headless ?? true,
+    device = defaultOptions.device,
+    moduleServer: moduleServerOpts = {},
+  },
 }: {
   testPath: string;
   options: WithBrowserOpts;
@@ -223,7 +229,14 @@ const createTab = async ({
   const browser = await connectToBrowser('chromium', headless);
   const browserContext = await browser.createIncognitoBrowserContext();
   const page = await browserContext.newPage();
-  const { requestCache, port, close: closeServer } = await createModuleServer();
+  const {
+    requestCache,
+    port,
+    close: closeServer,
+  } = await createModuleServer({
+    ...defaultOptions.moduleServer,
+    ...moduleServerOpts,
+  });
 
   if (device) {
     if (!headless) {
@@ -327,18 +340,18 @@ const createTab = async ({
       if (!fileName.startsWith(`http://localhost:${port}`))
         return stackItem.raw;
       const url = new URL(fileName);
-      const id = `.${url.pathname}`;
+      const osPath = url.pathname.slice(1).split(posix.sep).join(sep);
+      // Absolute file path
+      const file = resolve(process.cwd(), osPath);
+      // Rollup-style Unix-normalized path "id":
+      const id = file.split(sep).join(posix.sep);
       const transformResult = requestCache.get(id);
       const map = typeof transformResult === 'object' && transformResult.map;
       if (!map) {
         let p = url.pathname;
         const npmPrefix = '/@npm/';
         if (p.startsWith(npmPrefix))
-          p = path.join(
-            process.cwd(),
-            'node_modules',
-            p.slice(npmPrefix.length),
-          );
+          p = join(process.cwd(), 'node_modules', p.slice(npmPrefix.length));
         return printStackLine(p, line, column, stackItem.name);
       }
 
@@ -352,8 +365,7 @@ const createTab = async ({
       const mappedLine = sourceLocation.line;
       const mappedPath = sourceLocation.source || url.pathname;
       return printStackLine(
-        // For the code frames, Jest will only recognize absolute paths
-        path.join(process.cwd(), mappedPath),
+        mappedPath,
         mappedLine,
         mappedColumn,
         stackItem.name,
@@ -417,9 +429,9 @@ const createTab = async ({
   };
 
   const loadCSS: PleasantestUtils['loadCSS'] = async (cssPath) => {
-    const fullPath = path.isAbsolute(cssPath)
-      ? path.relative(process.cwd(), cssPath)
-      : path.join(path.dirname(testPath), cssPath);
+    const fullPath = isAbsolute(cssPath)
+      ? relative(process.cwd(), cssPath)
+      : join(dirname(testPath), cssPath);
     await safeEvaluate(
       loadCSS,
       `import(${JSON.stringify(
@@ -430,7 +442,7 @@ const createTab = async ({
 
   const loadJS: PleasantestUtils['loadJS'] = async (jsPath) => {
     const fullPath = jsPath.startsWith('.')
-      ? path.join(path.dirname(testPath), jsPath)
+      ? join(dirname(testPath), jsPath)
       : jsPath;
     await safeEvaluate(
       loadJS,
@@ -465,6 +477,12 @@ const createTab = async ({
     state,
     cleanupServer: () => closeServer(),
   };
+};
+
+let defaultOptions: WithBrowserOpts = {};
+
+export const configureDefaults = (options: WithBrowserOpts) => {
+  defaultOptions = options;
 };
 
 export const devices = puppeteer.devices;

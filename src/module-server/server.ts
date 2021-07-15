@@ -34,7 +34,7 @@ export const createServer = ({ middleware }: ServerOpts) =>
           // Create a new console instance instead of using the global one
           // Because the global one is overridden by Jest, and it adds a misleading second stack trace and code frame below it
           const console = new Console(process.stdout, process.stderr);
-          console.log(err.stack);
+          console.log(err.stack || err.message || err);
         },
       });
       if (middleware.length > 0) server.use(...middleware);

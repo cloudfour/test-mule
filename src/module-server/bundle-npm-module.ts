@@ -2,7 +2,7 @@ import type { Plugin, RollupCache } from 'rollup';
 import { rollup } from 'rollup';
 import { promises as fs } from 'fs';
 import commonjs from '@rollup/plugin-commonjs';
-import { processGlobalPlugin } from './plugins/process-global-plugin';
+import { environmentVariablesPlugin } from './plugins/environment-variables-plugin';
 import * as esbuild from 'esbuild';
 import { parse } from 'cjs-module-lexer';
 // @ts-expect-error @types/node@12 doesn't like this import
@@ -26,6 +26,7 @@ export const bundleNpmModule = async (
   mod: string,
   id: string,
   optimize: boolean,
+  envVars: Record<string, string>,
 ) => {
   let namedExports: string[] = [];
   if (dynamicCJSModules.has(id)) {
@@ -77,7 +78,7 @@ export { default } from '${mod}'`;
           },
         } as Plugin),
       pluginNodeResolve(),
-      processGlobalPlugin({ NODE_ENV: 'development' }),
+      environmentVariablesPlugin(envVars),
       commonjs({
         extensions: ['.js', '.cjs', ''],
         sourceMap: false,

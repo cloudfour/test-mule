@@ -1,6 +1,7 @@
-import { dirname, isAbsolute, posix, relative, resolve, sep } from 'path';
+import { dirname, posix, relative, resolve, sep } from 'path';
 import type polka from 'polka';
-import type { Plugin, SourceDescription } from 'rollup';
+import type { SourceDescription } from 'rollup';
+import type { Plugin } from '../plugin';
 import { createPluginContainer } from '../rollup-plugin-container';
 import { promises as fs } from 'fs';
 import { transformImports } from '../transform-imports';
@@ -10,6 +11,11 @@ import type {
 } from '@ampproject/remapping/dist/types/types';
 import MagicString from 'magic-string';
 import { jsExts } from '../extensions-and-detection';
+import { encode } from 'querystring';
+import * as esbuild from 'esbuild';
+import { createCodeFrame } from 'simple-code-frame';
+import * as colors from 'kolorist';
+import { Console } from 'console';
 
 interface JSMiddlewareOpts {
   root: string;
@@ -35,27 +41,33 @@ export const jsMiddleware = ({
       let id: string;
       let file: string;
       if (path.startsWith('/@npm/')) {
-        id = path.slice(1);
+        id = path.slice(1); // Remove leading slash
         file = ''; // This should never be read
       } else {
         // Remove leading slash, and convert slashes to os-specific slashes
         const osPath = path.slice(1).split(posix.sep).join(sep);
         // Absolute file path
         file = resolve(root, osPath);
-        // Rollup-style CWD-relative Unix-normalized path "id":
-        id = `./${relative(root, file)
-          .replace(/^\.\//, '')
-          .replace(/^\0/, '')
-          .split(sep)
-          .join(posix.sep)}`;
+        // Rollup-style Unix-normalized path "id":
+        id = file.split(sep).join(posix.sep);
+        const qs = encode(
+          Object.fromEntries(
+            Object.entries(req.query).filter(
+              ([key]) => key !== 'import' && key !== 'inline-code',
+            ),
+          ) as any,
+        )
+          // Remove trailing =
+          // This is necessary for rollup-plugin-vue, which ads ?lang.ts at the end of the id,
+          // so the file gets processed by other transformers
+          .replace(/=$/, '');
+        if (qs) id += `?${qs}`;
       }
 
       res.setHeader('Content-Type', 'application/javascript;charset=utf-8');
       const resolved = await rollupPlugins.resolveId(id);
-      const resolvedId = (
-        typeof resolved === 'object' ? resolved?.id : resolved
-      ) as string;
-      let code: string | undefined;
+      const resolvedId = typeof resolved === 'object' ? resolved?.id : resolved;
+      let code: string | false | undefined;
       let map: DecodedSourceMap | RawSourceMap | string | undefined;
       if (typeof req.query['inline-code'] === 'string') {
         code = req.query['inline-code'];
@@ -85,13 +97,12 @@ export const jsMiddleware = ({
         // and none of the rollup plugins provided a load hook for it
         // and it doesn't have the ?import param (added for non-JS assets that can be imported into JS, like css)
         // Then treat it as a static asset
-        if (!jsExts.test(resolvedId) && req.query.import === undefined)
+        if (
+          !jsExts.test(resolvedId || req.path) &&
+          req.query.import === undefined
+        )
           return next();
 
-        // Always use the resolved id as the basis for our file
-        let file = resolvedId;
-        file = file.split(posix.sep).join(sep);
-        if (!isAbsolute(file)) file = resolve(root, file);
         code = await fs.readFile(file, 'utf-8');
       }
 
@@ -112,6 +123,7 @@ export const jsMiddleware = ({
             spec = typeof resolved === 'object' ? resolved.id : resolved;
             if (spec.startsWith('@npm/')) return `/${spec}`;
             if (/^(\/|\\|[a-z]:\\)/i.test(spec)) {
+              // Change FS-absolute paths to relative
               spec = relative(dirname(file), spec).split(sep).join(posix.sep);
               if (!/^\.?\.?\//.test(spec)) spec = `./${spec}`;
             }
@@ -128,7 +140,11 @@ export const jsMiddleware = ({
           // If it wasn't resovled, and doesn't have a js-like extension
           // add the ?import query param so it is clear
           // that the request needs to end up as JS that can be imported
-          if (!jsExts.test(spec)) return `${spec}?import`;
+          if (!jsExts.test(spec)) {
+            // If there is already a query parameter, add &import
+            const delimiter = /\?/.test(spec) ? '&' : '?';
+            return `${spec}${delimiter}import`;
+          }
 
           return spec;
         },
@@ -140,6 +156,28 @@ export const jsMiddleware = ({
         'Content-Length': Buffer.byteLength(code, 'utf-8'),
       });
       res.end(code);
+
+      // Start a esbuild build (just for the sake of parsing)
+      // That way, if there is a parsing error in the code resulting from the rollup transforms,
+      // we can display an error/code frame in the console
+      // instead of just a generic message from the browser saying it couldn't parse
+      // We are *not awaiting* this because we don't want to slow down sending the HTTP response
+      esbuild.transform(code, { loader: 'js' }).catch((error) => {
+        const err = error.errors[0];
+        const { line, column } = err.location;
+        const frame = createCodeFrame(code as string, line - 1, column);
+        const message = `${colors.red(colors.bold(err.text))}
+
+${colors.red(`${id}:${line}:${(column as number) + 1}`)}
+
+${frame}
+`;
+
+        // Create a new console instance instead of using the global one
+        // Because the global one is overridden by Jest, and it adds a misleading second stack trace and code frame below it
+        const console = new Console(process.stdout, process.stderr);
+        console.error(message);
+      });
     } catch (error) {
       next(error);
     }
