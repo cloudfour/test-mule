@@ -1,5 +1,11 @@
 # pleasantest
 
+## 0.7.1
+
+### Patch Changes
+
+- [#159](https://github.com/cloudfour/pleasantest/pull/159) [`a999340`](https://github.com/cloudfour/pleasantest/commit/a9993400847dd9e6dcf35a83c3156c020093401d) Thanks [@calebeby](https://github.com/calebeby)! - Improve node_modules and relative paths resolution
+
 ## 0.7.0
 
 ### Minor Changes
