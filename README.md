@@ -317,9 +317,12 @@ Ensures that the element is visible to a user. Currently, the following checks a
 - Element has a size (its [bounding box](https://developer.mozilla.org/en-US/docs/Web/API/Element/getBoundingClientRect) has a non-zero width and height)
 - Element's opacity is greater than 0.05 (opacity of parent elements are considered)
 
-## Full Example
+## Full Examples
 
-There is a menu example in the [examples folder](./examples/menu/index.test.ts)
+You can find more detailed examples in the [examples folder](./examples/).
+
+- [Elastic Textarea](./examples/elastic-textarea/elastic-textarea.test.ts)
+- [Menu](./examples/menu/index.test.ts)
 
 ## API
 
